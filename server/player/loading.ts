@@ -1,5 +1,5 @@
 import { OxPlayer } from 'player/class';
-import { CreateUser, GetUserIdFromIdentifier, IsUserBanned, UpdateUserTokens } from './db';
+import { BanUser, CreateUser, GetActiveBan, GetUserIdFromIdentifier, UpdateUserIp, UpdateUserTokens } from './db';
 import { GetIdentifiers, GetPlayerLicense } from 'utils';
 import { DEBUG, SV_LAN } from '../config';
 import type { Dict } from 'types';
@@ -33,18 +33,35 @@ async function loadPlayer(playerId: number) {
       if (userId && OxPlayer.getFromUserId(userId)) return kickReason;
     }
 
-    const tokens = getPlayerTokens(playerId);
-    await UpdateUserTokens(userId, tokens);
+    player.username = GetPlayerName(player.source as string);
 
-    const ban = await IsUserBanned(userId);
+    // Ensure a user row exists before associating tokens/IP (FK) and running the evasion check.
+    if (!userId) userId = await CreateUser(player.username, GetIdentifiers(playerId));
+
+    player.userId = userId;
+    player.identifier = identifier;
+
+    const tokens = getPlayerTokens(playerId);
+    const ip = GetPlayerEndpoint(player.source as string) || undefined;
+
+    await UpdateUserTokens(userId, tokens);
+    await UpdateUserIp(userId, ip);
+
+    const ban = await GetActiveBan(userId, tokens, ip);
 
     if (ban) {
+      // A match on a different account is ban evasion — also ban this identity so it reads as a
+      // direct ban next time, mirroring the original ban's remaining duration (permanent stays permanent).
+      if (ban.userId !== userId) {
+        const hours = ban.unban_at
+          ? Math.max(1, Math.ceil((new Date(ban.unban_at).getTime() - Date.now()) / 3600000))
+          : undefined;
+
+        await BanUser(userId, locales('ban_evasion_reason', ban.userId, ban.reason ?? '-'), hours);
+      }
+
       return OxPlayer.formatBanReason(ban);
     }
-
-    player.username = GetPlayerName(player.source as string);
-    player.userId = userId ? userId : await CreateUser(player.username, GetIdentifiers(playerId));
-    player.identifier = identifier;
 
     DEV: console.info(`Loaded player data for OxPlayer<${player.userId}>`);
 
@@ -117,12 +134,17 @@ onNet('ox:playerJoined', async () => {
   player.setAsJoined();
 });
 
-on('playerDropped', () => {
+on('playerDropped', async () => {
   const player = OxPlayer.get(source);
 
   if (!player) return;
 
-  player.logout(true, true);
+  try {
+    await player.logout(true, true);
+  } catch (err) {
+    console.error(`Failed to log out OxPlayer<${player.userId}> on disconnect:`, err);
+  }
+
   OxPlayer.remove(player.source);
 
   DEV: console.info(`Dropped OxPlayer<${player.userId}>`);

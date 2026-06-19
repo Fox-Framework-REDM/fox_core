@@ -5,18 +5,34 @@ import {
   getRandomAlphanumeric,
   getRandomChar,
   getRandomInt,
+  sleep,
   type VehicleProperties,
 } from '@overextended/ox_lib';
 import { PLATE_PATTERN } from '../../common/config';
 import type { Dict, VehicleData } from 'types';
 import { GetVehicleData, GetVehicleNetworkType } from '../../common/vehicles';
-import { setVehicleProperties } from '@overextended/ox_lib/server';
 import { Vector3 } from '@nativewrappers/server';
 import { SpawnVehicle } from 'vehicle';
+import { triggerClientCallback } from '@overextended/ox_lib/server';
+import { OxPlayer } from 'player/class';
 
 export type Vec3 = number[] | { x: number; y: number; z: number } | { buffer: any };
 
 const setEntityOrphanMode = typeof SetEntityOrphanMode !== 'undefined' ? SetEntityOrphanMode : () => {};
+const setEntityHealth = (entity: number, health: number) => {
+  const native = (globalThis as { SetEntityHealth?: (entity: number, healthAmount: number, entityKilledBy?: number) => void })
+    .SetEntityHealth;
+  if (native) native(entity, health, 0);
+};
+function getHorseSpawnPlayer(owner?: number) {
+  if (owner) {
+    const player = OxPlayer.getFromCharId(owner);
+    if (player?.source) return Number(player.source);
+  }
+
+  const players = (globalThis as { GetPlayers?: () => string[] }).GetPlayers?.() || [];
+  return players[0] ? Number(players[0]) : 0;
+}
 
 export class OxVehicle extends ClassInterface {
   script: string;
@@ -32,6 +48,13 @@ export class OxVehicle extends ClassInterface {
   #metadata: Dict<any>;
   #properties: Partial<VehicleProperties>;
   #stored: string | null;
+  /** Entity health, persisted so horses/wagons keep their condition across spawns. */
+  #health: number | null;
+  /** Horse identity / breeding (NULL for wagons/boats). Tack/components live in `data` JSON. */
+  nickname: string | null;
+  gender: string | null;
+  bonding: number | null;
+  fertile: number | null;
 
   protected static members: Dict<OxVehicle> = {};
   protected static keys: Dict<Dict<OxVehicle>> = {
@@ -40,9 +63,31 @@ export class OxVehicle extends ClassInterface {
     entity: {},
   };
 
-  static spawn(model: string, coords: Vector3, heading?: number) {
+  static async spawn(model: string, coords: Vector3, heading?: number, owner?: number) {
+    const modelHash = GetHashKey(model);
+    const vehicleType = GetVehicleData(model)?.type;
+
+    if (vehicleType === 'horse') {
+      const playerId = getHorseSpawnPlayer(owner);
+      if (!playerId) throw new Error(`Failed to spawn '${model}' (no client available)`);
+
+      const netId = await triggerClientCallback<number>('ox:spawnHorse', playerId, model, { x: coords.x, y: coords.y, z: coords.z }, heading ?? 0);
+      let entity = netId && NetworkGetEntityFromNetworkId(netId);
+
+      for (let i = 0; netId && (!entity || !DoesEntityExist(entity)) && i < 20; i++) {
+        await sleep(50);
+        entity = NetworkGetEntityFromNetworkId(netId);
+      }
+
+      if (!entity || !DoesEntityExist(entity)) {
+        throw new Error(`Failed to spawn '${model}' at ${coords.x}, ${coords.y}, ${coords.z}`);
+      }
+
+      return entity;
+    }
+
     const entityId = CreateVehicleServerSetter(
-      model,
+      modelHash,
       GetVehicleNetworkType(model),
       coords.x,
       coords.y,
@@ -50,12 +95,15 @@ export class OxVehicle extends ClassInterface {
       heading || 0,
     );
 
+    if (!entityId || !DoesEntityExist(entityId)) {
+      throw new Error(`Failed to spawn '${model}' at ${coords.x}, ${coords.y}, ${coords.z}`);
+    }
+
     setEntityOrphanMode(entityId, 2);
 
     return entityId;
   }
 
-  /** Get an instance of OxVehicle with the matching vin. */
   static get(vin: string) {
     const vehicle = this.members[vin];
 
@@ -64,22 +112,18 @@ export class OxVehicle extends ClassInterface {
     return SpawnVehicle(vin);
   }
 
-  /** Get an instance of OxVehicle with the matching vehicleId. */
   static getFromVehicleId(vehicleId: number) {
     return this.keys.id[vehicleId];
   }
 
-  /** Get an instance of OxVehicle with the matching netId. */
   static getFromNetId(id: number) {
     return this.keys.netId[id];
   }
 
-  /** Get an instance of OxVehicle with the matching entityId. */
   static getFromEntity(entityId: number) {
     return this.keys.entity[entityId];
   }
 
-  /** Compares vehicle fields and metadata to a filter, returning the vehicle if all values match. */
   private filter(criteria: Dict<any>) {
     for (const key in criteria) {
       const value = criteria[key];
@@ -90,7 +134,6 @@ export class OxVehicle extends ClassInterface {
     return this;
   }
 
-  /** Get an instance of OxVehicle that matches the filter. */
   static getFromFilter(filter: Dict<any>) {
     for (const id in this.members) {
       const vehicle = this.members[id].filter(filter);
@@ -98,7 +141,6 @@ export class OxVehicle extends ClassInterface {
     }
   }
 
-  /** Gets all instances of OxVehicle, optionally comparing against a filter. */
   static getAll(filter?: Dict<any>, asArray?: false): Dict<OxVehicle>;
   static getAll(filter?: Dict<any>, asArray?: true): OxVehicle[];
   static getAll(filter?: Dict<any>, asArray = false): Dict<OxVehicle> | OxVehicle[] {
@@ -148,7 +190,7 @@ export class OxVehicle extends ClassInterface {
   }
 
   static saveAll(resource?: string) {
-    if (resource === 'ox_core') resource = '';
+    if (resource === 'fox_core') resource = '';
 
     const parameters = [];
 
@@ -185,6 +227,7 @@ export class OxVehicle extends ClassInterface {
     id?: number,
     owner?: number,
     group?: string,
+    health?: number | null,
   ) {
     super();
     this.script = script;
@@ -198,16 +241,61 @@ export class OxVehicle extends ClassInterface {
     this.#properties = properties;
     this.#metadata = metadata || {};
     this.#stored = stored;
+    this.#health = health ?? null;
+    this.nickname = null;
+    this.gender = null;
+    this.bonding = null;
+    this.fertile = null;
 
     OxVehicle.add(this.vin, this);
   }
 
-  /** Stores a value in the vehicle's metadata. */
+  setHorseData(data: { nickname?: string; gender?: string; bonding?: number; fertile?: number }) {
+    if (data.nickname !== undefined) this.nickname = data.nickname ?? null;
+    if (data.gender !== undefined) this.gender = data.gender ?? null;
+    if (data.bonding !== undefined) this.bonding = data.bonding ?? null;
+    if (data.fertile !== undefined) this.fertile = data.fertile ?? null;
+  }
+
+  setNickname(value: string | null) {
+    this.nickname = value;
+    SetVehicleColumn(this.id, 'nickname', value);
+  }
+
+  setGender(value: string | null) {
+    this.gender = value;
+    SetVehicleColumn(this.id, 'gender', value);
+  }
+
+  setBonding(value: number | null) {
+    this.bonding = value;
+    SetVehicleColumn(this.id, 'bonding', value);
+  }
+
+  setFertile(value: boolean | number | null) {
+    this.fertile = value == null ? null : value ? 1 : 0;
+    SetVehicleColumn(this.id, 'fertile', this.fertile);
+  }
+
+  getHealth() {
+    if (this.entity && DoesEntityExist(this.entity)) this.#health = GetEntityHealth(this.entity);
+
+    return this.#health;
+  }
+
+  setHealth(value: number) {
+    this.#health = value;
+
+    if (this.entity && DoesEntityExist(this.entity)) setEntityHealth(this.entity, value);
+
+    const state = this.getState();
+    if (state) state.set('health', value, true);
+  }
+
   set(key: string, value: any) {
     this.#metadata[key] = value;
   }
 
-  /** Gets a value stored in vehicle's metadata. */
   get(key: string) {
     return this.#metadata[key];
   }
@@ -227,7 +315,12 @@ export class OxVehicle extends ClassInterface {
   #getSaveData() {
     if (!this.id) return;
 
-    return [this.#stored, JSON.stringify({ ...this.#metadata, properties: this.#properties }), this.id];
+    return [
+      this.#stored,
+      JSON.stringify({ ...this.#metadata, properties: this.#properties }),
+      this.getHealth(),
+      this.id,
+    ];
   }
 
   save() {
@@ -289,15 +382,13 @@ export class OxVehicle extends ClassInterface {
     SetVehicleColumn(this.id, 'plate', this.plate);
   }
 
-  setProperties(properties: Partial<VehicleProperties>, apply?: boolean) {
+  setProperties(properties: Partial<VehicleProperties>, _apply?: boolean) {
     if (!this.entity) return;
 
     this.#properties = typeof properties === 'string' ? JSON.parse(properties) : properties;
-
-    if (apply) setVehicleProperties(this.entity, this.#properties);
   }
 
-  respawn(coords?: Vec3, rotation: Vector3 | number = 0): number | null {
+  async respawn(coords?: Vec3, rotation: Vector3 | number = 0): Promise<number | null> {
     const hasEntity = !!this.entity && DoesEntityExist(this.entity);
 
     if (!coords && hasEntity) {
@@ -313,31 +404,33 @@ export class OxVehicle extends ClassInterface {
         ? rotation
         : Vector3.fromObject(rotation || hasEntity ? GetEntityRotation(this.entity as number) : null);
 
-    // Clean up existing entity and registry entries before spawning new one
     if (hasEntity) {
       emit('ox:despawnVehicle', this.entity, this.id);
       DeleteEntity(this.entity as number);
     }
 
-    // Remove from registry before creating new entity to avoid conflicts
     OxVehicle.remove(this.vin);
 
-    // Create new entity
-    this.entity = OxVehicle.spawn(this.model, coords as Vector3, typeof rotation === 'number' ? rotation : 0);
+    this.entity = await OxVehicle.spawn(this.model, coords as Vector3, typeof rotation === 'number' ? rotation : 0, this.owner);
+    if (!this.entity || !DoesEntityExist(this.entity)) return null;
+
     this.netId = NetworkGetNetworkIdFromEntity(this.entity);
 
     if (typeof rotation !== 'number') SetEntityRotation(this.entity, rotation.x, rotation.y, rotation.z, 2, false);
 
-    // Re-add to registry after successful spawn
     OxVehicle.add(this.vin, this);
-    SetVehicleNumberPlateText(this.entity, this.#properties.plate || this.plate);
-    setVehicleProperties(this.entity, this.#properties);
+
+    // Plates/vehicle properties are GTA-only; horses (peds) and RDR3 vehicles skip them.
+    if (this.#health != null) setEntityHealth(this.entity, this.#health);
+
     emit('ox:spawnedVehicle', this.entity, this.id);
 
     const state = this.getState();
 
-    // @todo use ox_lib's entity wrapper..
-    if (state) state.set('ox_entity_setonground', true, true);
+    if (state) {
+      if (GetVehicleData(this.model)?.type !== 'horse') state.set('ox_entity_setonground', true, true);
+      if (this.#health != null) state.set('health', this.#health, true);
+    }
 
     return this.entity;
   }

@@ -1,22 +1,14 @@
 import { LoadDataFile } from './';
-import type { Dict, VehicleCategories, VehicleData, VehicleStats, Vehicles } from 'types';
+import type { Dict, VehicleData, Vehicles } from 'types';
 
 const vehicles: Dict<VehicleData> = LoadDataFile('vehicles');
-const vehicleStats = LoadDataFile('vehicleStats');
-
-export function GetTopVehicleStats(): Record<VehicleCategories, VehicleStats>;
-export function GetTopVehicleStats(category: VehicleCategories): VehicleStats;
-
-export function GetTopVehicleStats(category?: VehicleCategories) {
-  return category ? (vehicleStats as any)[category] : vehicleStats;
-}
 
 export function GetVehicleData(): Vehicles;
 export function GetVehicleData<T extends string>(filter: T): VehicleData;
 export function GetVehicleData<T extends string[]>(
   filter: T,
 ): {
-  [K in T[number]]: VehicleData; // this could be better
+  [K in T[number]]: VehicleData;
 };
 
 export function GetVehicleData(filter?: void | string | string[]) {
@@ -53,12 +45,16 @@ export function GetVehicleNetworkType(modelName: string) {
     case 'amphibious_quadbike':
     case 'amphibious_automobile':
     case 'submarinecar':
+    // RDR3 draft vehicles (wagons, carts, carriages, handcar) are networked as automobiles.
+    case 'draft':
+    case 'cart':
+    case 'wagon':
+    case 'handcar':
       return 'automobile';
     default:
       return vehicleType;
   }
 }
 
-exports('GetTopVehicleStats', GetTopVehicleStats);
 exports('GetVehicleData', GetVehicleData);
 exports('GetVehicleNetworkType', GetVehicleNetworkType);

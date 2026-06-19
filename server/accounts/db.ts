@@ -14,6 +14,21 @@ const addTransaction =
 const getBalance = 'SELECT balance FROM accounts WHERE id = ?';
 const doesAccountExist = 'SELECT 1 FROM accounts WHERE id = ?';
 
+// Gold is a parallel currency stored in its own column, mirroring the cash `balance`.
+const addGold = 'UPDATE accounts SET gold = gold + ? WHERE id = ?';
+const safeRemoveGold = 'UPDATE accounts SET gold = gold - ? WHERE id = ? AND (gold - ?) >= 0';
+const getGold = 'SELECT gold FROM accounts WHERE id = ?';
+const addGoldTransaction =
+  "INSERT INTO accounts_transactions (actorId, fromId, toId, amount, currency, message, note, fromBalance, toBalance) VALUES (?, ?, ?, ?, 'gold', ?, ?, ?, ?)";
+
+function ParseCurrencyAmount(amount: number) {
+  const parsedAmount = Number.parseFloat(String(amount));
+
+  if (!Number.isFinite(parsedAmount)) return Number.NaN;
+
+  return Math.round(parsedAmount * 100) / 100;
+}
+
 async function GenerateAccountId(conn: Connection) {
   const date = new Date();
   const year = date.getFullYear().toString().slice(-2);
@@ -37,7 +52,7 @@ export async function UpdateBalance(
   note?: string,
   actorId?: number,
 ): Promise<{ success: boolean; message?: string }> {
-  amount = Number.parseInt(String(amount));
+  amount = ParseCurrencyAmount(amount);
 
   if (isNaN(amount)) return { success: false, message: 'amount_not_number' };
 
@@ -96,7 +111,7 @@ export async function PerformTransaction(
   note?: string,
   actorId?: number,
 ): Promise<{ success: boolean; message?: string }> {
-  amount = Number.parseInt(String(amount));
+  amount = ParseCurrencyAmount(amount);
 
   if (isNaN(amount)) return { success: false, message: 'amount_not_number' };
 
@@ -203,7 +218,7 @@ export async function DepositMoney(
   message?: string,
   note?: string,
 ): Promise<{ success: boolean; message?: string }> {
-  amount = Number.parseInt(String(amount));
+  amount = ParseCurrencyAmount(amount);
 
   if (isNaN(amount)) return { success: false, message: 'amount_not_number' };
 
@@ -267,7 +282,7 @@ export async function WithdrawMoney(
   message?: string,
   note?: string,
 ): Promise<{ success: boolean; message?: string }> {
-  amount = Number.parseInt(String(amount));
+  amount = ParseCurrencyAmount(amount);
 
   if (isNaN(amount)) return { success: false, message: 'amount_not_number' };
 
@@ -310,6 +325,112 @@ export async function WithdrawMoney(
   ]);
 
   emit('ox:withdrewMoney', { playerId, accountId, amount });
+
+  return { success: true };
+}
+
+export async function DepositGold(
+  playerId: number,
+  accountId: number,
+  amount: number,
+  message?: string,
+  note?: string,
+): Promise<{ success: boolean; message?: string }> {
+  amount = ParseCurrencyAmount(amount);
+
+  if (isNaN(amount)) return { success: false, message: 'amount_not_number' };
+
+  if (amount <= 0) return { success: false, message: 'invalid_amount' };
+
+  const player = OxPlayer.get(playerId);
+
+  if (!player?.charId) return { success: false, message: 'no_charid' };
+
+  const gold = exports.ox_inventory.GetItemCount(playerId, 'gold');
+
+  if (amount > gold) return { success: false, message: 'insufficient_funds' };
+
+  using conn = await GetConnection();
+  const balance = await conn.scalar<number>(getGold, [accountId]);
+
+  if (balance === null) return { success: false, message: 'no_balance' };
+
+  const role = await conn.scalar<OxAccountRole>(selectAccountRole, [accountId, player.charId]);
+
+  if (!(await CanPerformAction(player, accountId, role, 'deposit'))) return { success: false, message: 'no_access' };
+
+  await conn.beginTransaction();
+
+  const affectedRows = await conn.update(addGold, [amount, accountId]);
+
+  if (!affectedRows || !exports.ox_inventory.RemoveItem(playerId, 'gold', amount)) {
+    conn.rollback();
+    return { success: false, message: 'something_went_wrong' };
+  }
+
+  await conn.execute(addGoldTransaction, [
+    player.charId,
+    null,
+    accountId,
+    amount,
+    message ?? locales('deposit'),
+    note,
+    null,
+    balance + amount,
+  ]);
+
+  emit('ox:depositedGold', { playerId, accountId, amount });
+
+  return { success: true };
+}
+
+export async function WithdrawGold(
+  playerId: number,
+  accountId: number,
+  amount: number,
+  message?: string,
+  note?: string,
+): Promise<{ success: boolean; message?: string }> {
+  amount = ParseCurrencyAmount(amount);
+
+  if (isNaN(amount)) return { success: false, message: 'amount_not_number' };
+
+  if (amount <= 0) return { success: false, message: 'invalid_amount' };
+
+  const player = OxPlayer.get(playerId);
+
+  if (!player?.charId) return { success: false, message: 'no_charId' };
+
+  using conn = await GetConnection();
+  const role = await conn.scalar<OxAccountRole>(selectAccountRole, [accountId, player.charId]);
+
+  if (!(await CanPerformAction(player, accountId, role, 'withdraw'))) return { success: false, message: 'no_access' };
+
+  const balance = await conn.scalar<number>(getGold, [accountId]);
+
+  if (balance === null) return { success: false, message: 'no_balance' };
+
+  await conn.beginTransaction();
+
+  const affectedRows = await conn.update(safeRemoveGold, [amount, accountId, amount]);
+
+  if (!affectedRows || !exports.ox_inventory.AddItem(playerId, 'gold', amount)) {
+    conn.rollback();
+    return { success: false, message: 'something_went_wrong' };
+  }
+
+  await conn.execute(addGoldTransaction, [
+    player.charId,
+    accountId,
+    null,
+    amount,
+    message ?? locales('withdraw'),
+    note,
+    balance - amount,
+    null,
+  ]);
+
+  emit('ox:withdrewGold', { playerId, accountId, amount });
 
   return { success: true };
 }
@@ -412,6 +533,8 @@ export async function CreateInvoice({
   message,
   dueDate,
 }: OxCreateInvoice): Promise<{ success: boolean; message?: string }> {
+  amount = ParseCurrencyAmount(amount);
+
   if (isNaN(amount)) return { success: false, message: 'amount_not_number' };
 
   if (amount <= 0) return { success: false, message: 'invalid_amount' };

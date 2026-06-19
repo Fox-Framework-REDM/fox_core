@@ -10,10 +10,10 @@
 
 /*!40111 SET @OLD_SQL_NOTES=@@SQL_NOTES, SQL_NOTES=0 */;
 
-CREATE DATABASE IF NOT EXISTS `overextended` DEFAULT CHARACTER
+CREATE DATABASE IF NOT EXISTS `fox` DEFAULT CHARACTER
 SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
-USE `overextended`;
+USE `fox`;
 
 CREATE TABLE IF NOT EXISTS `users` (
   `userId` INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -22,7 +22,26 @@ CREATE TABLE IF NOT EXISTS `users` (
   `steam` VARCHAR(20) DEFAULT NULL,
   `fivem` VARCHAR(10) DEFAULT NULL,
   `discord` VARCHAR(20) DEFAULT NULL,
+  `ip` VARCHAR(45) DEFAULT NULL,
   PRIMARY KEY (`userId`)
+);
+
+-- Hardware tokens per user; shared tokens across accounts are the reliable ban-evasion signal.
+CREATE TABLE IF NOT EXISTS `user_tokens` (
+  `userId` INT UNSIGNED NOT NULL,
+  `token` VARCHAR(50) NOT NULL,
+  PRIMARY KEY (`userId`, `token`),
+  INDEX `token` (`token`),
+  CONSTRAINT `FK_user_tokens_users` FOREIGN KEY (`userId`) REFERENCES `users` (`userId`) ON UPDATE CASCADE ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS `banned_users` (
+  `userId` INT UNSIGNED NOT NULL,
+  `banned_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  `unban_at` TIMESTAMP DEFAULT NULL,
+  `reason` VARCHAR(255),
+  PRIMARY KEY (`userId`),
+  CONSTRAINT `FK_banned_users_users` FOREIGN KEY (`userId`) REFERENCES `users` (`userId`) ON UPDATE CASCADE ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS `characters`
@@ -36,15 +55,16 @@ CREATE TABLE IF NOT EXISTS `characters`
   `fullName`    VARCHAR(101) AS (CONCAT(`firstName`, ' ', `lastName`)) STORED,
   `gender`      VARCHAR(10)                                              NOT NULL,
   `dateOfBirth` DATE                                                     NOT NULL,
-  `phoneNumber` VARCHAR(20)                                              NULL,
+  `telegramId`  VARCHAR(20)                                              NULL,
+  `origin`      VARCHAR(32)                                              NULL,
   `lastPlayed`  DATETIME                     DEFAULT CURRENT_TIMESTAMP() NOT NULL,
   `isDead`      TINYINT(1)                   DEFAULT 0                   NOT NULL,
   `x`           FLOAT                                                    NULL,
   `y`           FLOAT                                                    NULL,
   `z`           FLOAT                                                    NULL,
   `heading`     FLOAT                                                    NULL,
-  `health`      TINYINT UNSIGNED                                         NULL,
-  `armour`      TINYINT UNSIGNED                                         NULL,
+  `health`      SMALLINT UNSIGNED                                        NULL,
+  `dirt`        JSON                                                     NULL,
   `statuses`    LONGTEXT COLLATE utf8mb4_bin DEFAULT JSON_OBJECT()       NOT NULL
       CHECK (JSON_VALID(`statuses`)),
   `deleted`     DATE                                                     NULL,
@@ -61,6 +81,7 @@ CREATE FULLTEXT INDEX IF NOT EXISTS `characters_fullName_index`
 CREATE INDEX IF NOT EXISTS `characters_userId_key`
   ON `characters` (`userId`);
 
+
 CREATE TABLE IF NOT EXISTS `character_inventory` (
   `charId` INT UNSIGNED NOT NULL,
   `inventory` JSON NULL DEFAULT NULL,
@@ -69,7 +90,7 @@ CREATE TABLE IF NOT EXISTS `character_inventory` (
   CONSTRAINT `character_inventory_charId_fk` FOREIGN KEY (`charId`) REFERENCES `characters` (`charId`) ON DELETE CASCADE ON UPDATE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS `ox_groups` (
+CREATE TABLE IF NOT EXISTS `fox_groups` (
   `name` VARCHAR(20) NOT NULL,
   `label` VARCHAR(50) NOT NULL,
   `type` VARCHAR(50) NULL,
@@ -86,7 +107,7 @@ CREATE TABLE IF NOT EXISTS `character_groups` (
   UNIQUE KEY `name` (`name`, `charId`),
   KEY `character_groups_charId_key` (`charId`),
   CONSTRAINT `character_groups_charId_fk` FOREIGN KEY (`charId`) REFERENCES `characters` (`charId`) ON DELETE CASCADE ON UPDATE CASCADE,
-  CONSTRAINT `character_groups_name_fk` FOREIGN KEY (`name`) REFERENCES `ox_groups` (`name`) ON DELETE CASCADE ON UPDATE CASCADE
+  CONSTRAINT `character_groups_name_fk` FOREIGN KEY (`name`) REFERENCES `fox_groups` (`name`) ON DELETE CASCADE ON UPDATE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS `ox_inventory` (
@@ -103,8 +124,14 @@ CREATE TABLE IF NOT EXISTS `vehicles` (
   `vin` CHAR(17) NOT NULL,
   `owner` INT UNSIGNED NULL DEFAULT NULL,
   `group` VARCHAR(20) NULL DEFAULT NULL,
-  `model` VARCHAR(20) NOT NULL,
+  `model` VARCHAR(64) NOT NULL,
+  `type` VARCHAR(20) NULL DEFAULT NULL,
   `class` TINYINT UNSIGNED NULL DEFAULT NULL,
+  `health` INT NULL DEFAULT NULL,
+  `nickname` VARCHAR(50) NULL DEFAULT NULL,
+  `gender` VARCHAR(10) NULL DEFAULT NULL,
+  `bonding` TINYINT UNSIGNED NULL DEFAULT NULL,
+  `fertile` TINYINT(1) NULL DEFAULT NULL,
   `data` JSON NOT NULL,
   `trunk` JSON NULL DEFAULT NULL,
   `glovebox` JSON NULL DEFAULT NULL,
@@ -114,27 +141,28 @@ CREATE TABLE IF NOT EXISTS `vehicles` (
   UNIQUE KEY `vin` (`vin`),
   KEY `vehicles_owner_key` (`owner`),
   CONSTRAINT `vehicles_owner_fk` FOREIGN KEY (`owner`) REFERENCES `characters` (`charId`) ON DELETE CASCADE ON UPDATE CASCADE,
-  CONSTRAINT `vehicles_group_fk` FOREIGN KEY (`group`) REFERENCES `ox_groups` (`name`) ON DELETE CASCADE ON UPDATE CASCADE
+  CONSTRAINT `vehicles_group_fk` FOREIGN KEY (`group`) REFERENCES `fox_groups` (`name`) ON DELETE CASCADE ON UPDATE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS `ox_statuses` (
+CREATE TABLE IF NOT EXISTS `fox_statuses` (
   `name` VARCHAR(20) NOT NULL,
   `default` TINYINT (3) UNSIGNED NOT NULL DEFAULT 0,
-  `onTick` DECIMAL(8, 7) DEFAULT 0
+  `onTick` DECIMAL(8, 7) DEFAULT 0,
+  PRIMARY KEY (`name`)
 );
 
-INSERT INTO `ox_statuses` (`name`, `default`, `onTick`) VALUES
+INSERT IGNORE INTO `fox_statuses` (`name`, `default`, `onTick`) VALUES
   ('hunger', 0, 0.02),
   ('thirst', 0, 0.05),
   ('stress', 0, -0.10);
 
-CREATE TABLE IF NOT EXISTS `ox_licenses` (
+CREATE TABLE IF NOT EXISTS `fox_licenses` (
   `name` VARCHAR(20) NOT NULL,
   `label` VARCHAR(50) NOT NULL,
   UNIQUE KEY `name` (`name`)
 );
 
-INSERT INTO `ox_licenses` (`name`, `label`) VALUES
+INSERT IGNORE INTO `fox_licenses` (`name`, `label`) VALUES
   ('weapon', 'Weapon License'),
   ('driver', "Driver's License");
 
@@ -154,11 +182,13 @@ CREATE TABLE IF NOT EXISTS `accounts`
   `label`     VARCHAR(50)                                                         NOT NULL,
   `owner`     INT UNSIGNED                                                        NULL,
   `group`     VARCHAR(20)                                                         NULL,
-  `balance`   INT                                              DEFAULT 0          NOT NULL,
+  `balance`   DECIMAL(12,2)                                    DEFAULT 0          NOT NULL,
+  `gold`      DECIMAL(12,2)                                    DEFAULT 0          NOT NULL,
   `isDefault` TINYINT(1)                                       DEFAULT 0          NOT NULL,
   `type`      ENUM ('personal', 'shared', 'group', 'inactive') DEFAULT 'personal' NOT NULL,
+  `branch`    VARCHAR(32)                                      DEFAULT NULL       NULL,
   CONSTRAINT `accounts_group_fk`
-      FOREIGN KEY (`group`) REFERENCES `ox_groups` (`name`)
+      FOREIGN KEY (`group`) REFERENCES `fox_groups` (`name`)
           ON UPDATE SET NULL ON DELETE SET NULL,
   CONSTRAINT `accounts_owner_fk`
       FOREIGN KEY (`owner`) REFERENCES `characters` (`charId`)
@@ -168,7 +198,7 @@ CREATE TABLE IF NOT EXISTS `accounts`
 CREATE FULLTEXT INDEX IF NOT EXISTS `accounts_label_index`
   ON `accounts` (`label`);
 
-CREATE TABLE `account_roles` (
+CREATE TABLE IF NOT EXISTS `account_roles` (
   `id` INT(11) NOT NULL AUTO_INCREMENT,
   `name` VARCHAR(50) NOT NULL DEFAULT '',
   `deposit` TINYINT(1) NOT NULL DEFAULT '0',
@@ -186,20 +216,20 @@ CREATE TABLE `account_roles` (
   UNIQUE INDEX `name` (`name`)
 );
 
-INSERT INTO `account_roles` (`id`, `name`, `deposit`, `withdraw`, `addUser`, `removeUser`, `manageUser`, `transferOwnership`, `viewHistory`, `manageAccount`, `closeAccount`, `sendInvoice`, `payInvoice`) VALUES
+INSERT IGNORE INTO `account_roles` (`id`, `name`, `deposit`, `withdraw`, `addUser`, `removeUser`, `manageUser`, `transferOwnership`, `viewHistory`, `manageAccount`, `closeAccount`, `sendInvoice`, `payInvoice`) VALUES
   (1, 'viewer', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
   (2, 'contributor', 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
   (3, 'manager', 1, 1, 1, 1, 1, 0, 1, 1, 0, 1, 1),
   (4, 'owner', 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1);
 
-CREATE TABLE IF NOT EXISTS `ox_group_grades` (
+CREATE TABLE IF NOT EXISTS `fox_group_grades` (
   `group` VARCHAR(20) NOT NULL,
   `grade` TINYINT UNSIGNED NOT NULL DEFAULT 1,
   `label` VARCHAR(50) NOT NULL,
   `accountRole` VARCHAR(50) NULL DEFAULT NULL,
   PRIMARY KEY (`group`, `grade`),
-  CONSTRAINT `ox_group_grades_group_fk` FOREIGN KEY (`group`) REFERENCES `ox_groups` (`name`) ON DELETE CASCADE ON UPDATE CASCADE,
-  CONSTRAINT `FK_ox_group_grades_account_roles` FOREIGN KEY (`accountRole`) REFERENCES `account_roles` (`name`) ON UPDATE CASCADE ON DELETE CASCADE
+  CONSTRAINT `fox_group_grades_group_fk` FOREIGN KEY (`group`) REFERENCES `fox_groups` (`name`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `FK_fox_group_grades_account_roles` FOREIGN KEY (`accountRole`) REFERENCES `account_roles` (`name`) ON UPDATE CASCADE ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS `accounts_access` (
@@ -218,11 +248,12 @@ CREATE TABLE IF NOT EXISTS `accounts_transactions` (
   `actorId` INT UNSIGNED DEFAULT NULL,
   `fromId` INT UNSIGNED DEFAULT NULL,
   `toId` INT UNSIGNED DEFAULT NULL,
-  `amount` INT NOT NULL,
+  `amount` DECIMAL(12,2) NOT NULL,
+  `currency` VARCHAR(10) NOT NULL DEFAULT 'money',
   `message` VARCHAR(255) NOT NULL,
   `note` VARCHAR(255) DEFAULT NULL,
-  `fromBalance` INT DEFAULT NULL,
-  `toBalance` INT DEFAULT NULL,
+  `fromBalance` DECIMAL(12,2) DEFAULT NULL,
+  `toBalance` DECIMAL(12,2) DEFAULT NULL,
   `date` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   CONSTRAINT `accounts_transactions_actorId_fk` FOREIGN KEY (`actorId`) REFERENCES `characters` (`charId`) ON DELETE CASCADE ON UPDATE CASCADE,
@@ -241,7 +272,7 @@ CREATE TABLE IF NOT EXISTS `accounts_invoices`
     `payerId`     INT UNSIGNED                          NULL,
     `fromAccount` INT UNSIGNED                          NOT NULL,
     `toAccount`   INT UNSIGNED                          NOT NULL,
-    `amount`      INT UNSIGNED                          NOT NULL,
+    `amount`      DECIMAL(12,2) UNSIGNED                NOT NULL,
     `message`     VARCHAR(255)                          NULL,
     `sentAt`      TIMESTAMP DEFAULT CURRENT_TIMESTAMP() NOT NULL,
     `dueDate`     TIMESTAMP                             NOT NULL,
@@ -258,6 +289,40 @@ CREATE TABLE IF NOT EXISTS `accounts_invoices`
 
 CREATE FULLTEXT INDEX IF NOT EXISTS `idx_message_fulltext`
     ON `accounts_invoices` (`message`);
+
+-- fox_banking: agências (branch) + cofre por agência.
+CREATE TABLE IF NOT EXISTS `bank_branches`
+(
+    `id`        VARCHAR(32)  NOT NULL PRIMARY KEY,
+    `label`     VARCHAR(64)  NOT NULL,
+    `region`    VARCHAR(32)  NOT NULL,
+    `accountId` INT UNSIGNED NOT NULL,
+    CONSTRAINT `bank_branches_account_fk`
+        FOREIGN KEY (`accountId`) REFERENCES `accounts` (`id`)
+            ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+-- fox_banking: remessas em trânsito (transferências com tempo).
+CREATE TABLE IF NOT EXISTS `bank_pending_transfers`
+(
+    `id`          INT UNSIGNED  NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    `fromAccount` INT UNSIGNED  NOT NULL,
+    `toAccount`   INT UNSIGNED  NOT NULL,
+    `actorId`     INT UNSIGNED  NULL,
+    `amount`      DECIMAL(12,2) NOT NULL,
+    `fee`         DECIMAL(12,2) NOT NULL DEFAULT 0,
+    `currency`    VARCHAR(10)   NOT NULL DEFAULT 'money',
+    `fromBranch`  VARCHAR(32)   NULL,
+    `toBranch`    VARCHAR(32)   NULL,
+    `status`      ENUM ('pending', 'completed', 'failed') NOT NULL DEFAULT 'pending',
+    `createdAt`   TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `arrivesAt`   TIMESTAMP     NOT NULL,
+    KEY `idx_status_arrives` (`status`, `arrivesAt`),
+    CONSTRAINT `bank_pending_from_fk`
+        FOREIGN KEY (`fromAccount`) REFERENCES `accounts` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT `bank_pending_to_fk`
+        FOREIGN KEY (`toAccount`) REFERENCES `accounts` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
+);
 
 /*!40101 SET SQL_MODE=IFNULL(@OLD_SQL_MODE, '') */;
 

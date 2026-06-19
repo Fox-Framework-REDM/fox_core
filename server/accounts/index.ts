@@ -12,19 +12,12 @@ setInterval(() => {
   }
 }, 60000);
 
-/**
- * Return the default account for a character.
- * @param id The charId or stateId used to identify the character.
- */
 export async function GetCharacterAccount(id: number | string) {
   const charId = typeof id === 'string' ? await GetCharIdFromStateId(id) : id;
   const accountId = charId && (await SelectDefaultAccountId('owner', charId));
   return accountId ? OxAccount.get(accountId) : null;
 }
 
-/**
- * Return the default account for a group.
- */
 export async function GetGroupAccount(groupName: string) {
   const accountId = await SelectDefaultAccountId('group', groupName);
   return accountId ? OxAccount.get(accountId) : null;

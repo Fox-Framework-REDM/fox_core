@@ -1,9 +1,9 @@
 {
-  "name": "@overextended/ox_core",
-  "author": "Overextended",
+  "name": "@fox-rp/fox_core",
+  "author": "Fox RP (based on Overextended ox_core)",
   "version": "1.5.14",
-  "license": "LGPL-3.0-or-later",
-  "description": "A modern FiveM framework.",
+  "license": "GPL-3.0-or-later",
+  "description": "A modern RedM framework.",
   "type": "module",
   "files": [
     "./tsconfig.json",
@@ -22,31 +22,30 @@
     "lint": "bun run biome lint --write"
   },
   "keywords": [
-    "fivem",
-    "ox_core",
-    "ox",
-    "overextended",
+    "redm",
+    "fox_core",
+    "fox",
     "overextended"
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/overextended/ox_core.git"
+    "url": "https://github.com/overextended/ox_core"
   },
   "bugs": "https://github.com/overextended/ox_core/issues",
   "devDependencies": {
     "@citizenfx/client": "2.0.29753-1",
     "@citizenfx/server": "2.0.29753-1",
     "@overextended/fx-utils": "^0.0.6",
-    "@types/node": "^22.19.20",
+    "@types/node": "^22",
     "esbuild": "^0.23.1",
     "tsc-alias": "^1.8.17",
     "typescript": "^5.9.3"
   },
   "dependencies": {
     "@biomejs/biome": "^1.9.4",
-    "@nativewrappers/fivem": "^0.0.174",
-    "@nativewrappers/server": "^0.0.174",
-    "@overextended/ox_lib": "^3.37.1",
+    "@nativewrappers/fivem": "^0.0.86",
+    "@nativewrappers/server": "^0.0.86",
+    "@overextended/ox_lib": "^3.36.0",
     "mariadb": "^3.5.2"
   },
   "engines": {

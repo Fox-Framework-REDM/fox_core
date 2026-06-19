@@ -5,17 +5,17 @@ import type { DbGroup } from 'types';
 export function SelectGroups() {
   return db.query<DbGroup>(`
     SELECT 
-      ox_groups.*,
-      JSON_OBJECTAGG(ox_group_grades.grade, ox_group_grades.accountRole) AS accountRoles,
-      JSON_ARRAYAGG(ox_group_grades.label ORDER BY ox_group_grades.grade) AS grades
+      fox_groups.*,
+      JSON_OBJECTAGG(fox_group_grades.grade, fox_group_grades.accountRole) AS accountRoles,
+      JSON_ARRAYAGG(fox_group_grades.label ORDER BY fox_group_grades.grade) AS grades
     FROM 
-        ox_groups
+        fox_groups
     JOIN 
-        ox_group_grades
+        fox_group_grades
     ON
-        ox_groups.name = ox_group_grades.group
+        fox_groups.name = fox_group_grades.group
     GROUP BY 
-        ox_groups.name;
+        fox_groups.name;
   `);
 }
 
@@ -24,14 +24,14 @@ export async function InsertGroup({ name, label, type, colour, hasAccount, grade
   await conn.beginTransaction();
 
   const insertedGroup = await conn.update(
-    'INSERT IGNORE INTO `ox_groups` (`name`, `label`, `type`, `colour`, `hasAccount`) VALUES (?, ?, ?, ?, ?)',
+    'INSERT IGNORE INTO `fox_groups` (`name`, `label`, `type`, `colour`, `hasAccount`) VALUES (?, ?, ?, ?, ?)',
     [name, label, type, colour, hasAccount],
   );
 
   if (!insertedGroup) return true;
 
   const insertedGrades = (await conn.batch(
-    'INSERT INTO `ox_group_grades` (`group`, `grade`, `label`, `accountRole`) VALUES (?, ?, ?, ?)',
+    'INSERT INTO `fox_group_grades` (`group`, `grade`, `label`, `accountRole`) VALUES (?, ?, ?, ?)',
     grades.map((gradeLabel, index) => [name, index + 1, gradeLabel, accountRoles[index + 1]]),
   )) as UpsertResult[];
 
@@ -39,7 +39,7 @@ export async function InsertGroup({ name, label, type, colour, hasAccount, grade
 }
 
 export function RemoveGroup(groupName: string) {
-  return db.update('DELETE FROM `ox_groups` WHERE name = ?', [groupName]);
+  return db.update('DELETE FROM `fox_groups` WHERE name = ?', [groupName]);
 }
 
 export async function AddCharacterGroup(charId: number, name: string, grade: number) {

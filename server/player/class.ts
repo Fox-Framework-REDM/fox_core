@@ -13,7 +13,7 @@ import {
 } from './db';
 import { getRandomChar, getRandomInt } from '@overextended/ox_lib';
 import { GetGroup, GetGroupsByType } from 'groups';
-import { GeneratePhoneNumber } from 'bridge/npwd';
+import { GenerateTelegramId } from './telegram';
 import { Statuses } from './status';
 import { addPrincipal, removePrincipal } from '@overextended/ox_lib/server';
 import {
@@ -24,7 +24,17 @@ import {
   SetActiveGroup,
 } from 'groups/db';
 import { PayAccountInvoice } from 'accounts';
-import type { Character, Dict, NewCharacter, PlayerMetadata, OxGroup, CharacterLicense, BanDetails } from 'types';
+import type {
+  Character,
+  Dict,
+  NewCharacter,
+  PlayerMetadata,
+  OxGroup,
+  CharacterLicense,
+  BanDetails,
+  PedDirt,
+  SpawnOverride,
+} from 'types';
 import { GetGroupPermissions } from '../../common';
 import { Licenses } from './license';
 import { CHARACTER_SLOTS } from 'config';
@@ -43,6 +53,9 @@ export class OxPlayer extends ClassInterface {
   #statuses: Dict<number>;
   #groups: Dict<number>;
   #licenses: Dict<CharacterLicense>;
+  #dirt: PedDirt | null;
+  #health: number | null = null;
+  #isDead = false;
 
   protected static members: Dict<OxPlayer> = {};
   protected static keys: Dict<Dict<OxPlayer>> = {
@@ -50,17 +63,35 @@ export class OxPlayer extends ClassInterface {
     charId: {},
   };
 
-  /** Get an instance of OxPlayer with the matching playerId. */
+  // Player(source) can already be invalid by the time `playerDropped` fires (same issue as the
+  // stale ped handle worked around in #getSaveData), which silently breaks save() right when a
+  // player disconnects. Cache health/isDead from the statebag as they change instead of reading
+  // them live — this also fires for local server-side `.state.set()` calls, not just
+  // client-replicated updates, so it stays in sync with every existing call site for free.
+  static {
+    AddStateBagChangeHandler('health', '', (bagName: string, _key: string, value: number | null) => {
+      if (!bagName.startsWith('player:')) return;
+
+      const player = OxPlayer.get(bagName.slice(7));
+      if (player) player.#health = typeof value === 'number' && value > 0 ? Math.floor(value) : null;
+    });
+
+    AddStateBagChangeHandler('isDead', '', (bagName: string, _key: string, value: boolean) => {
+      if (!bagName.startsWith('player:')) return;
+
+      const player = OxPlayer.get(bagName.slice(7));
+      if (player) player.#isDead = !!value;
+    });
+  }
+
   static get(id: string | number) {
     return this.members[id];
   }
 
-  /** Get an instance of OxPlayer with the matching userId. */
   static getFromUserId(id: number) {
     return this.keys.userId[id];
   }
 
-  /** Get an instance of OxPlayer with the matching charId. */
   static getFromCharId(id: number) {
     return this.keys.charId[id];
   }
@@ -81,7 +112,6 @@ export class OxPlayer extends ClassInterface {
     return locales('ban_notice', new Date(ban.banned_at).toLocaleString(), ban.reason, timeRemainingMessage);
   }
 
-  /** Compares player fields and metadata to a filter, returning the player if all values match. */
   private filter(criteria: Dict<any>) {
     const { groups, ...filter } = criteria;
 
@@ -96,7 +126,6 @@ export class OxPlayer extends ClassInterface {
     return this;
   }
 
-  /** Get an instance of OxPlayer with that matches the filter. */
   static getFromFilter(filter: Dict<any>) {
     for (const id in this.members) {
       const player = this.members[id].filter(filter);
@@ -104,7 +133,6 @@ export class OxPlayer extends ClassInterface {
     }
   }
 
-  /** Gets all instances of OxPlayer, optionally comparing against a filter. */
   static getAll(filter?: Dict<any>, asArray?: false): Dict<OxPlayer>;
   static getAll(filter?: Dict<any>, asArray?: true): OxPlayer[];
   static getAll(filter?: Dict<any>, asArray = false): Dict<OxPlayer> | OxPlayer[] {
@@ -120,7 +148,6 @@ export class OxPlayer extends ClassInterface {
     return asArray ? Object.values(obj) : obj;
   }
 
-  /** Saves all players to the database, and optionally kicks them from the server. */
   static saveAll(kickWithReason?: string) {
     const parameters = [];
 
@@ -153,14 +180,13 @@ export class OxPlayer extends ClassInterface {
     this.#statuses = {};
     this.#groups = {};
     this.#licenses = {};
+    this.#dirt = null;
   }
 
-  /** Triggers an event on the player's client. */
   emit(eventName: string, ...args: any[]) {
     emitNet(eventName, this.source, ...args);
   }
 
-  /** Stores a value in the active character's metadata. */
   set<K extends string>(
     key: K | keyof PlayerMetadata,
     value: K extends keyof PlayerMetadata ? PlayerMetadata[K] : any,
@@ -172,7 +198,6 @@ export class OxPlayer extends ClassInterface {
     if (replicated) this.emit('ox:setPlayerData', key, value);
   }
 
-  /** Gets a value stored in active character's metadata. */
   get<K extends string>(key: K | keyof PlayerMetadata): K extends keyof PlayerMetadata ? PlayerMetadata[K] : any {
     return this.#metadata[key];
   }
@@ -261,7 +286,6 @@ export class OxPlayer extends ClassInterface {
     return true;
   }
 
-  /** Returns the current grade of a given group name, or the first matched name and grade in the filter. */
   getGroup(filter: string): number;
   getGroup(filter: string[] | Record<string, number>): [string, number] | [];
   getGroup(filter: string | string[] | Record<string, number>) {
@@ -314,7 +338,6 @@ export class OxPlayer extends ClassInterface {
     return false;
   }
 
-  /** Sets the value of a status. */
   setStatus(statusName: string, value = Statuses[statusName].default) {
     if (Statuses[statusName] === undefined) return;
 
@@ -326,17 +349,39 @@ export class OxPlayer extends ClassInterface {
     return true;
   }
 
-  /** Returns the current value of a status. */
   getStatus(statusName: string) {
     return this.#statuses[statusName];
   }
 
-  /** Returns an object containing all status names and their values. */
   getStatuses() {
     return this.#statuses;
   }
 
-  /** Increases the status's value by the given amount. */
+  /** Cached body dirtiness, reported by the client and persisted on save. */
+  getDirt() {
+    return this.#dirt;
+  }
+
+  /** Updates the cached body dirtiness (called from the client `ox:setDirt` event). */
+  setDirt(dirt: PedDirt | null) {
+    this.#dirt = dirt;
+  }
+
+  /** Clears stored dirtiness and tells the client to wash the ped. For a future reset command. */
+  clearDirt() {
+    this.#dirt = null;
+    this.emit('ox:clearDirt');
+  }
+
+  /**
+   * Live entity health, replicated by the client through the `health` statebag (server-side
+   * GetEntityHealth is unreliable for player peds in rdr3) and cached via the class' statebag
+   * handler — null until reported.
+   */
+  getHealth(): number | null {
+    return this.#health;
+  }
+
   addStatus(statusName: string, value: number) {
     if (this.#statuses[statusName] === undefined) return;
 
@@ -349,7 +394,6 @@ export class OxPlayer extends ClassInterface {
     return true;
   }
 
-  /** Reduces the status's value by the given amount. */
   removeStatus(statusName: string, value: number) {
     if (this.#statuses[statusName] === undefined) return;
 
@@ -412,20 +456,24 @@ export class OxPlayer extends ClassInterface {
     return true;
   }
 
-  /** Returns an array of values to be saved in the database. */
   #getSaveData() {
+    // Re-fetch the live ped: the cached handle goes stale when the ped is recreated
+    // (model change on spawn, death/respawn) and stale handles read 0 for coords.
+    const ped = GetPlayerPed(this.source as string) || this.ped;
+    const isDead = this.#isDead;
+
     return [
-      ...GetEntityCoords(this.ped),
-      GetEntityHeading(this.ped),
-      Player(this.source).state.isDead || false,
-      GetEntityHealth(this.ped),
-      GetPedArmour(this.ped),
+      ...GetEntityCoords(ped),
+      GetEntityHeading(ped),
+      isDead,
+      // Health is replicated by the client via statebag (server-side GetEntityHealth is unreliable in rdr3).
+      isDead ? 0 : this.getHealth(),
       JSON.stringify(this.#statuses || {}),
+      this.#dirt ? JSON.stringify(this.#dirt) : null,
       this.charId,
     ];
   }
 
-  /** Adds the active character to the group and sets permissions. */
   #addGroup(group: string | OxGroup, grade: number) {
     const groupName = typeof group === 'string' ? group : group.name;
     group = GetGroup(groupName);
@@ -439,7 +487,6 @@ export class OxPlayer extends ClassInterface {
     GlobalState[`${group.name}:count`] += 1;
   }
 
-  /** Removes the active character from the group and sets permissions. */
   #removeGroup(group: string | OxGroup, grade: number, canRemoveActiveCount = false) {
     const groupName = typeof group === 'string' ? group : group.name;
     group = GetGroup(groupName);
@@ -459,12 +506,18 @@ export class OxPlayer extends ClassInterface {
     }
   }
 
-  /** Saves the active character to the database. */
   save() {
-    if (this.charId) return SaveCharacterData(this.#getSaveData());
+    if (!this.charId) return;
+
+    const result = SaveCharacterData(this.#getSaveData());
+
+    if (result && typeof (result as any).then === 'function') {
+      (result as Promise<any>).catch((err) => console.error(`Failed to save OxPlayer<${this.userId}>:`, err));
+    }
+
+    return result;
   }
 
-  /** Adds the player to the player registry and starts character selection. */
   async setAsJoined() {
     if (!OxPlayer.getFromUserId(this.userId)) {
       OxPlayer.add(this.source, this);
@@ -482,11 +535,6 @@ export class OxPlayer extends ClassInterface {
     return this.#characters;
   }
 
-  /**
-   * Clears data for the active character. If the player is still connected then transition them to character selection.
-   * @param dropped If the player has been dropped from the server.
-   * @param save If character data should be saved to the database (defaults to true).
-   */
   async logout(save = true, dropped = false) {
     if (!this.charId) return;
 
@@ -504,7 +552,6 @@ export class OxPlayer extends ClassInterface {
     this.emit('ox:startCharacterSelect', this.userId, await this.#getCharacters());
   }
 
-  /** Creates a stateId for a newly created character. */
   async #generateStateId() {
     const arr = [];
 
@@ -518,12 +565,11 @@ export class OxPlayer extends ClassInterface {
     }
   }
 
-  /** Registers a new character for the player. */
   async createCharacter(data: NewCharacter) {
     if (this.charId || this.#characters.length >= CHARACTER_SLOTS) return;
 
     const stateId = await this.#generateStateId();
-    const phoneNumber = await GeneratePhoneNumber();
+    const telegramId = GenerateTelegramId();
 
     const character: Character = {
       firstName: data.firstName,
@@ -536,7 +582,7 @@ export class OxPlayer extends ClassInterface {
         data.lastName,
         data.gender,
         data.date,
-        phoneNumber,
+        telegramId,
       ),
       isNew: true,
       gender: data.gender,
@@ -548,7 +594,6 @@ export class OxPlayer extends ClassInterface {
     return this.#characters.length - 1;
   }
 
-  /** Returns the current index for a character with the given charId. */
   #getCharacterSlotFromId(charId: number) {
     if (this.charId) return -1;
 
@@ -557,8 +602,7 @@ export class OxPlayer extends ClassInterface {
     });
   }
 
-  /** Loads and sets the player's active character. */
-  async setActiveCharacter(data: number | NewCharacter) {
+  async setActiveCharacter(data: number | NewCharacter, spawn?: SpawnOverride) {
     if (this.charId) return;
 
     const characterSlot =
@@ -578,13 +622,28 @@ export class OxPlayer extends ClassInterface {
     if (!metadata) return;
 
     const statuses = metadata.statuses || this.#statuses;
-    const { isDead, gender, dateOfBirth, phoneNumber, health, armour } = metadata;
+    const { isDead, gender, dateOfBirth, telegramId, origin, health, dirt } = metadata;
+
+    if (spawn) {
+      character.x = spawn.x;
+      character.y = spawn.y;
+      character.z = spawn.z;
+      character.heading = spawn.heading;
+    }
     const groups = await GetCharacterGroups(this.charId);
     const licenses = await GetCharacterLicenses(this.charId);
     const activeGroup = groups.find((group) => group.isActive)?.name;
 
-    character.health = isDead ? 0 : health;
-    character.armour = armour;
+    const spawnDead = isDead === 1;
+    const spawnHealth = typeof health === 'number' && health > 0 ? health : undefined;
+
+    character.health = spawnDead ? 0 : spawnHealth;
+
+    // Seed the health statebag with the stored value until the client replicates the live health,
+    // so a crash in the first moments after load still persists the loaded value rather than null.
+    Player(this.source).state.set('health', spawnDead ? null : (spawnHealth ?? null), true);
+    this.#dirt = dirt || null;
+    character.dirt = this.#dirt ?? undefined;
 
     groups.forEach(({ name, grade }) => this.#addGroup(name, grade));
     licenses.forEach(({ name, data }) => (this.#licenses[name] = data));
@@ -593,13 +652,13 @@ export class OxPlayer extends ClassInterface {
 
     this.emit('ox:setActiveCharacter', character, this.#groups);
 
-    // Values stored in metadata and synced to client.
     this.set('name', `${character.firstName} ${character.lastName}`, true);
     this.set('firstName', character.firstName, true);
     this.set('lastName', character.lastName, true);
     this.set('gender', gender, true);
     this.set('dateOfBirth', dateOfBirth, true);
-    this.set('phoneNumber', phoneNumber, true);
+    this.set('telegramId', telegramId, true);
+    this.set('origin', origin ?? undefined, true);
     this.set('activeGroup', activeGroup, true);
 
     if (activeGroup) {
@@ -621,7 +680,7 @@ export class OxPlayer extends ClassInterface {
      * https://github.com/citizenfx/fivem/pull/2257 - state bag write policies
      */
     const state = Player(this.source).state;
-    state.set('isDead', isDead === 1, true);
+    state.set('isDead', spawnDead, true);
 
     DEV: console.info(`OxPlayer<${this.userId}> loaded character ${this.get('name')} (${this.charId})`);
 
@@ -630,7 +689,6 @@ export class OxPlayer extends ClassInterface {
     return character;
   }
 
-  /** Deletes a character with the given charId if it's owned by the player. */
   async deleteCharacter(charId: number) {
     const isActive = this.charId === charId;
 

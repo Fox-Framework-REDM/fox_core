@@ -1,13 +1,10 @@
 import { OxVehicle, Vec3 } from './class';
 import { CreateNewVehicle, GetStoredVehicleFromId, IsPlateAvailable, type VehicleRow } from './db';
 import { GetVehicleData } from '../../common/vehicles';
-import { DEBUG } from '../../common/config';
 import './class';
 import './commands';
 import './events';
 import type { VehicleProperties } from '@overextended/ox_lib/server';
-
-if (DEBUG) import('./parser');
 
 export interface CreateVehicleData {
   model: string;
@@ -29,7 +26,7 @@ export async function CreateVehicle(
 
   if (!vehicleData)
     throw new Error(
-      `Failed to create vehicle '${data.model}' (model is invalid).\nEnsure vehicle exists in '@ox_core/common/data/vehicles.json'`,
+      `Failed to create vehicle '${data.model}' (model is invalid).\nEnsure vehicle exists in '@fox_core/common/data/vehicles.json'`,
     );
 
   if (data.id) {
@@ -68,6 +65,12 @@ export async function CreateVehicle(
       vehicleData.class,
       metadata,
       data.stored || null,
+      vehicleData.type, // horse | wagon | cart | draft | boat | handcar — recognised in DB
+      data.health ?? null,
+      data.nickname ?? null,
+      data.gender ?? null,
+      data.bonding ?? null,
+      data.fertile ?? null,
     );
   }
 
@@ -86,10 +89,13 @@ export async function CreateVehicle(
     data.id,
     data.owner,
     data.group,
+    data.health ?? null,
   );
 
+  vehicle.setHorseData(data);
+
   if (coords) {
-    vehicle.respawn(coords, heading || 0);
+    await vehicle.respawn(coords, heading || 0);
   }
 
   if (vehicle.entity) vehicle.setStored(null, false);

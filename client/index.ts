@@ -1,10 +1,7 @@
 export * from '../common';
-import { PLATE_PATTERN } from 'config';
 import 'player';
 import 'spawn';
 import 'death';
 import 'vehicle';
 
-for (let i = 0; i < GetNumberOfVehicleNumberPlates(); i++) {
-  SetDefaultVehicleNumberPlateTextPattern(i, PLATE_PATTERN);
-}
+// RDR3 has no GTA-style vehicle number plates, so the plate-pattern setup is omitted.

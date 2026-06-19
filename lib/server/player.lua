@@ -25,7 +25,7 @@ function OxPlayer:constructor(data)
 end
 
 function OxPlayer:__call(...)
-    return exports.ox_core:CallPlayer(self.source, ...)
+    return exports.fox_core:CallPlayer(self.source, ...)
 end
 
 function OxPlayer:__tostring()
@@ -63,7 +63,17 @@ function OxPlayer:getGroupByType(type)
     end
 end
 
-for method in pairs(exports.ox_core:GetPlayerCalls() or {}) do
+--[[ Calling a not-yet-registered export throws ("No such export ..."), which would
+     abort the consumer's require chain. Guard it so a load-order/timing gap only
+     means the dynamic proxy methods are skipped, not a hard crash. ]]
+local ok, calls = pcall(function() return exports.fox_core:GetPlayerCalls() end)
+
+if not ok then
+    print(('^3[fox_core]^0 GetPlayerCalls() unavailable (%s); dynamic OxPlayer methods skipped'):format(calls))
+    calls = nil
+end
+
+for method in pairs(calls or {}) do
     if not rawget(OxPlayer, method) then OxPlayer[method] = OxPlayer.__call end
 end
 
@@ -77,19 +87,19 @@ end
 local Ox = Ox
 
 function Ox.GetPlayer(playerId)
-    return CreatePlayerInstance(exports.ox_core:GetPlayer(playerId))
+    return CreatePlayerInstance(exports.fox_core:GetPlayer(playerId))
 end
 
 function Ox.GetPlayerFromUserId(userId)
-    return CreatePlayerInstance(exports.ox_core:GetPlayerFromUserId(userId))
+    return CreatePlayerInstance(exports.fox_core:GetPlayerFromUserId(userId))
 end
 
 function Ox.GetPlayerFromCharId(charId)
-    return CreatePlayerInstance(exports.ox_core:GetPlayerFromCharId(charId))
+    return CreatePlayerInstance(exports.fox_core:GetPlayerFromCharId(charId))
 end
 
 function Ox.GetPlayers(filter)
-    local players = exports.ox_core:GetPlayers(filter)
+    local players = exports.fox_core:GetPlayers(filter)
 
     for i = 1, #players do
         players[i] = CreatePlayerInstance(players[i])
@@ -99,5 +109,5 @@ function Ox.GetPlayers(filter)
 end
 
 function Ox.GetPlayerFromFilter(filter)
-    return CreatePlayerInstance(exports.ox_core:GetPlayerFromFilter(filter))
+    return CreatePlayerInstance(exports.fox_core:GetPlayerFromFilter(filter))
 end

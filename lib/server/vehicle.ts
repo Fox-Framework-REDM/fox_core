@@ -37,9 +37,9 @@ class VehicleInterface {
   }
 }
 
-Object.keys(exports.ox_core.GetVehicleCalls()).forEach((method: string) => {
+Object.keys(exports.fox_core.GetVehicleCalls()).forEach((method: string) => {
   (VehicleInterface.prototype as any)[method] = function (...args: any[]) {
-    return exports.ox_core.CallVehicle(this.vin, method, ...args);
+    return exports.fox_core.CallVehicle(this.vin, method, ...args);
   };
 });
 
@@ -73,19 +73,19 @@ export function GetVehicle(handle: number | string) {
 }
 
 export function GetVehicleFromEntity(entityId: number) {
-  return CreateVehicleInstance(exports.ox_core.GetVehicleFromEntity(entityId));
+  return CreateVehicleInstance(exports.fox_core.GetVehicleFromEntity(entityId));
 }
 
 export function GetVehicleFromNetId(netId: number) {
-  return CreateVehicleInstance(exports.ox_core.GetVehicleFromNetId(netId));
+  return CreateVehicleInstance(exports.fox_core.GetVehicleFromNetId(netId));
 }
 
 export function GetVehicleFromVin(vin: string) {
-  return CreateVehicleInstance(exports.ox_core.GetVehicleFromVin(vin));
+  return CreateVehicleInstance(exports.fox_core.GetVehicleFromVin(vin));
 }
 
 export function GetVehicles(filter?: Dict<any>): OxVehicle[] {
-  const vehicles = exports.ox_core.GetVehicles(filter);
+  const vehicles = exports.fox_core.GetVehicles(filter);
 
   for (const id in vehicles) vehicles[id] = CreateVehicleInstance(vehicles[id]);
 
@@ -93,7 +93,7 @@ export function GetVehicles(filter?: Dict<any>): OxVehicle[] {
 }
 
 export function GetVehicleFromFilter(filter: Dict<any>) {
-  return CreateVehicleInstance(exports.ox_core.GetVehicleFromFilter(filter));
+  return CreateVehicleInstance(exports.fox_core.GetVehicleFromFilter(filter));
 }
 
 export async function CreateVehicle(
@@ -101,7 +101,7 @@ export async function CreateVehicle(
   coords?: number | number[] | { x: number; y: number; z: number },
   heading?: number,
 ) {
-  return CreateVehicleInstance(await exports.ox_core.CreateVehicle(data, coords, heading));
+  return CreateVehicleInstance(await exports.fox_core.CreateVehicle(data, coords, heading));
 }
 
 export async function SpawnVehicle(
@@ -109,5 +109,5 @@ export async function SpawnVehicle(
   coords: number | number[] | { x: number; y: number; z: number },
   heading?: number,
 ) {
-  return CreateVehicleInstance(await exports.ox_core.SpawnVehicle(dbId, coords, heading));
+  return CreateVehicleInstance(await exports.fox_core.SpawnVehicle(dbId, coords, heading));
 }

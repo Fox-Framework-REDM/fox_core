@@ -1,7 +1,6 @@
 import { createPool } from 'mariadb';
 import { GetConfig } from './config';
 import type { Pool } from 'mariadb';
-import schema from './schema';
 
 export let pool: Pool;
 
@@ -24,8 +23,7 @@ setImmediate(async () => {
 
     console.log(`${`^5[${version.raw}]`} ^2Database server connection established!^0`);
 
-    await schema(dbPool);
-
+    // Schema is defined entirely in sql/install.sql; nothing is created at runtime.
     pool = dbPool;
   } catch (err) {
     console.log(

@@ -68,7 +68,7 @@ on('ox:playerLogout', (playerId: number) => {
 });
 
 on('onResourceStop', (resource: string) => {
-  if (resource !== 'ox_core') return;
+  if (resource !== 'fox_core') return;
 
   const players = OxPlayer.getAll();
 
@@ -85,6 +85,14 @@ onNet('ox:setActiveCharacter', async (data: number | NewCharacter) => {
   if (!player) return;
 
   return await player.setActiveCharacter(data);
+});
+
+onNet('ox:setDirt', (dirt: { body?: number; hat?: number; skin?: number }) => {
+  const player = OxPlayer.get(source);
+
+  if (!player?.charId || typeof dirt !== 'object' || dirt === null) return;
+
+  player.setDirt({ body: +dirt.body! || 0, hat: +dirt.hat! || 0, skin: +dirt.skin! || 0 });
 });
 
 onClientCallback('ox:deleteCharacter', async (playerId, charId: number) => {
@@ -146,5 +154,13 @@ on('txAdmin:events:playerHealed', ({ target, author }: { target: number; author:
   }
 });
 
-onNet('ox:playerDeath', () => Player(source).state.set('isDead', true, true))
-onNet('ox:playerRevived', () => Player(source).state.set('isDead', false, true))
+onNet('ox:playerDeath', () => {
+  const player = OxPlayer.get(source);
+
+  Player(source).state.set('isDead', true, true);
+
+  // Persist immediately on death (besides logout/crash/periodic) so the dead state survives a relog.
+  if (player?.charId) player.save();
+});
+
+onNet('ox:playerRevived', () => Player(source).state.set('isDead', false, true));

@@ -1,5 +1,12 @@
 export type Dict<T> = { [key: string]: T };
 
+/** rdr3 body dirtiness, as SA_DIRTINESS / SA_DIRTINESSHAT / SA_DIRTINESSSKIN attribute ranks. */
+export interface PedDirt {
+  body?: number;
+  hat?: number;
+  skin?: number;
+}
+
 export interface Character {
   charId: number;
   stateId: string;
@@ -12,7 +19,7 @@ export interface Character {
   heading?: number;
   lastPlayed?: string;
   health?: number;
-  armour?: number;
+  dirt?: PedDirt;
   isNew?: boolean;
 }
 
@@ -23,13 +30,22 @@ export interface NewCharacter {
   date: number;
 }
 
+/** Optional spawn position override passed to setActiveCharacter (used by spawn selectors). */
+export interface SpawnOverride {
+  x: number;
+  y: number;
+  z: number;
+  heading: number;
+}
+
 export interface PlayerMetadata {
   name: string;
   firstName: string;
   lastName: string;
   gender: string;
   dateOfBirth: string;
-  phoneNumber: string;
+  telegramId: string;
+  origin?: string;
   activeGroup?: string;
 }
 
@@ -41,7 +57,6 @@ export interface CharacterLicense {
 
 export type Vehicles = Dict<VehicleData>;
 export type VehicleCategories = 'air' | 'land' | 'sea';
-export type TopVehicleStats = Record<VehicleCategories, VehicleStats>;
 
 export interface VehicleStats {
   acceleration: number;
@@ -91,7 +106,13 @@ export type VehicleTypes =
   | 'submarine'
   | 'submarinecar'
   | 'trailer'
-  | 'train';
+  | 'train'
+  // RDR3 (rdr3)
+  | 'horse'
+  | 'draft'
+  | 'cart'
+  | 'wagon'
+  | 'handcar';
 
 export interface VehicleData extends VehicleStats {
   class: VehicleClasses;

@@ -19,5 +19,15 @@
   "ban_notice": "⚠️ You have been banned from this server! ⚠️\nBan issued: %s\nReason: %s\n\n%s",
   "userid_is_active": "Your userId (%s), is already active.",
   "no_license": "We were unable to verify your game license.",
-  "server_restarting": "The server is about to restart. You cannot join at this time."
+  "server_restarting": "The server is about to restart. You cannot join at this time.",
+  "ban_command_help": "Ban a player by server id (omit hours for permanent). Shared PC tokens/IP also trigger a ban-evasion block.",
+  "ban_param_target": "Server id of the player to ban.",
+  "ban_param_hours": "Duration in hours (omit for permanent).",
+  "ban_param_reason": "Ban reason.",
+  "ban_default_reason": "Banned by an admin.",
+  "ban_no_target": "No active player with server id %s.",
+  "ban_evasion_reason": "Ban evasion (linked to user %s): %s",
+  "unban_command_help": "Remove all bans for a userId (does not undo auto-created evasion bans on other accounts).",
+  "unban_param_userid": "The userId to unban.",
+  "unban_success": "Removed bans for userId %s."
 }

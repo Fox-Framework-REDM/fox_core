@@ -9,6 +9,13 @@ export type VehicleRow = {
   plate: string;
   vin: string;
   model: string;
+  type?: string;
+  health?: number;
+  // Horse identity / breeding (NULL for wagons/boats).
+  nickname?: string;
+  gender?: string;
+  bonding?: number;
+  fertile?: number;
   data: { properties: Partial<VehicleProperties>; [key: string]: any };
 };
 
@@ -25,7 +32,7 @@ export async function IsVinAvailable(plate: string) {
 
 export async function GetStoredVehicleFromId(id: number | string, column = 'id') {
   const row = await db.row<VehicleRow>(
-    `SELECT id, owner, \`group\`, plate, vin, model, data FROM vehicles WHERE ${column} = ? AND \`stored\` IS NOT NULL`,
+    `SELECT id, owner, \`group\`, plate, vin, model, type, health, nickname, gender, bonding, fertile, data FROM vehicles WHERE ${column} = ? AND \`stored\` IS NOT NULL`,
     [id],
   );
 
@@ -49,7 +56,7 @@ export function SaveVehicleData(
   values: any, // -.-
   batch?: boolean,
 ) {
-  const query = 'UPDATE vehicles SET `stored` = ?, data = ? WHERE id = ?';
+  const query = 'UPDATE vehicles SET `stored` = ?, data = ?, health = ? WHERE id = ?';
 
   return batch ? db.batch(query, values) : db.update(query, values);
 }
@@ -63,10 +70,16 @@ export function CreateNewVehicle(
   vehicleClass: number,
   data: object,
   stored: string | null,
+  type: string | null,
+  health: number | null,
+  nickname: string | null,
+  gender: string | null,
+  bonding: number | null,
+  fertile: number | null,
 ) {
   return db.insert(
-    'INSERT INTO vehicles (plate, vin, owner, `group`, model, class, data, `stored`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-    [plate, vin, owner, group, model, vehicleClass, JSON.stringify(data), stored],
+    'INSERT INTO vehicles (plate, vin, owner, `group`, model, class, data, `stored`, type, health, nickname, gender, bonding, fertile) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [plate, vin, owner, group, model, vehicleClass, JSON.stringify(data), stored, type, health, nickname, gender, bonding, fertile],
   );
 }
 

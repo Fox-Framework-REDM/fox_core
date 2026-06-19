@@ -4,7 +4,7 @@ import type { OxGroupPermissions } from 'types';
 if (!checkDependency('ox_lib', '3.24.0', true)) throw new Error('Failed dependency check.');
 
 export function LoadDataFile(file: string) {
-  return JSON.parse(LoadResourceFile('ox_core', `/common/data/${file}.json`));
+  return JSON.parse(LoadResourceFile('fox_core', `/common/data/${file}.json`));
 }
 
 export function GetGroupPermissions(groupName: string): OxGroupPermissions {

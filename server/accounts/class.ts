@@ -8,6 +8,8 @@ import {
   PerformTransaction,
   DepositMoney,
   WithdrawMoney,
+  DepositGold,
+  WithdrawGold,
   DeleteAccount,
   SelectAccountRole,
   UpdateAccountAccess,
@@ -56,9 +58,6 @@ export class OxAccount extends ClassInterface {
     OxAccount.add(accountId, this);
   }
 
-  /**
-   * Get the value of specific key(s) from account metadata.
-   */
   async get<T extends keyof OxAccountMetadata>(key: T): Promise<OxAccountMetadata[T]>;
   async get<T extends keyof OxAccountMetadata>(keys: T[]): Promise<Pick<OxAccountMetadata, T>>;
   async get<T extends keyof OxAccountMetadata>(
@@ -80,67 +79,48 @@ export class OxAccount extends ClassInterface {
     return metadata[keys];
   }
 
-  /**
-   * Add funds to the account.
-   */
   async addBalance({ amount, message }: UpdateAccountBalance) {
     return UpdateBalance(this.accountId, amount, 'add', false, message);
   }
 
-  /**
-   * Remove funds from the account.
-   */
   async removeBalance({ amount, overdraw = false, message }: RemoveAccountBalance) {
     return UpdateBalance(this.accountId, amount, 'remove', overdraw, message);
   }
 
-  /**
-   * Transfer funds to another account.
-   */
   async transferBalance({ toId, amount, overdraw = false, message, note, actorId }: TransferAccountBalance) {
     return PerformTransaction(this.accountId, toId, amount, overdraw, message, note, actorId);
   }
 
-  /**
-   * Deposit money into the account.
-   */
   async depositMoney(playerId: number, amount: number, message?: string, note?: string) {
     return DepositMoney(playerId, this.accountId, amount, message, note);
   }
 
-  /**
-   * Withdraw money from the account.
-   */
   async withdrawMoney(playerId: number, amount: number, message?: string, note?: string) {
     return WithdrawMoney(playerId, this.accountId, amount, message, note);
   }
 
-  /**
-   * Mark the account as deleted. It can no longer be accessed, but remains in the database.
-   */
+  async depositGold(playerId: number, amount: number, message?: string, note?: string) {
+    return DepositGold(playerId, this.accountId, amount, message, note);
+  }
+
+  async withdrawGold(playerId: number, amount: number, message?: string, note?: string) {
+    return WithdrawGold(playerId, this.accountId, amount, message, note);
+  }
+
   async deleteAccount() {
     return DeleteAccount(this.accountId);
   }
 
-  /**
-   * Get the account access role of a character by charId or stateId.
-   */
   async getCharacterRole(id: number | string) {
     const charId = typeof id === 'string' ? await GetCharIdFromStateId(id) : id;
     return charId ? SelectAccountRole(this.accountId, charId) : null;
   }
 
-  /**
-   * Set the account access role of a character by charId or stateId.
-   */
   async setCharacterRole(id: number | string, role?: OxAccountRole) {
     const charId = typeof id === 'string' ? await GetCharIdFromStateId(id) : id;
     return charId && UpdateAccountAccess(this.accountId, charId, role);
   }
 
-  /**
-   * Checks if a player's active character has permission to perform an action on the account.
-   */
   async playerHasPermission(playerId: number, permission: keyof OxAccountPermissions) {
     const player = OxPlayer.get(playerId);
 
@@ -150,16 +130,10 @@ export class OxAccount extends ClassInterface {
     return await CanPerformAction(player, this.accountId, role, permission);
   }
 
-  /**
-   * Set the account as shared, allowing permissions to be assigned to other characters.
-   */
   async setShared() {
     return SetAccountType(this.accountId, 'shared');
   }
 
-  /**
-   * Create an unpaid invoice on the account.
-   */
   async createInvoice(data: Omit<OxCreateInvoice, 'fromAccount'>) {
     const invoice = {
       fromAccount: this.accountId,

@@ -25,14 +25,24 @@ function OxAccount:constructor(data)
 end
 
 function OxAccount:__call(...)
-    return exports.ox_core:CallAccount(self.accountId, ...)
+    return exports.fox_core:CallAccount(self.accountId, ...)
 end
 
 function OxAccount:__tostring()
     return json.encode(self, { indent = true })
 end
 
-for method in pairs(exports.ox_core:GetAccountCalls() or {}) do
+--[[ Calling a not-yet-registered export throws ("No such export ..."), aborting
+     the consumer's require. Guard it so a load-order/timing gap only skips the
+     dynamic proxy methods instead of hard-crashing. ]]
+local ok, calls = pcall(function() return exports.fox_core:GetAccountCalls() end)
+
+if not ok then
+    print(('^3[fox_core]^0 GetAccountCalls() unavailable (%s); dynamic OxAccount methods skipped'):format(calls))
+    calls = nil
+end
+
+for method in pairs(calls or {}) do
     if not rawget(OxAccount, method) then OxAccount[method] = OxAccount.__call end
 end
 
@@ -46,21 +56,21 @@ end
 local Ox = Ox
 
 function Ox.GetAccount(accountId)
-    local account = exports.ox_core:GetAccount(accountId)
+    local account = exports.fox_core:GetAccount(accountId)
     return CreateAccountInstance(account)
 end
 
 function Ox.GetCharacterAccount(charId)
-    local account = exports.ox_core:GetCharacterAccount(charId)
+    local account = exports.fox_core:GetCharacterAccount(charId)
     return CreateAccountInstance(account)
 end
 
 function Ox.GetGroupAccount(groupName)
-    local account = exports.ox_core:GetGroupAccount(groupName)
+    local account = exports.fox_core:GetGroupAccount(groupName)
     return CreateAccountInstance(account)
 end
 
 function Ox.CreateAccount(owner, label)
-    local account = exports.ox_core:CreateAccount(owner, label)
+    local account = exports.fox_core:CreateAccount(owner, label)
     return CreateAccountInstance(account)
 end

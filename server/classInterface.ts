@@ -17,7 +17,6 @@ export class ClassInterface {
     return true;
   }
 
-  /** Exports several class methods and makes non-private methods callable from external resources. */
   static init() {
     const classMethods = Object.getOwnPropertyNames(this.prototype);
 
@@ -32,13 +31,13 @@ export class ClassInterface {
     const name = this.name;
     const expName = this.name.replace('Ox', '');
 
-    // e.g. exports.ox_core.GetPlayer
+    // e.g. exports.fox_core.GetPlayer
     exports(`Get${expName}`, (id: string | number) => this.get(id));
 
-    // e.g. exports.ox_core.GetPlayerCalls
+    // e.g. exports.fox_core.GetPlayerCalls
     exports(`Get${expName}Calls`, () => this.callableMethods);
 
-    // e.g. exports.ox_core.CallPlayer
+    // e.g. exports.fox_core.CallPlayer
     exports(`Call${expName}`, (id: string | number, method: string, ...args: any[]) => {
       // Maintain backwards compatibility with OxVehicle indexed by entityId..
       const member = expName === 'Vehicle' && typeof id === 'number' ? this.keys?.entity[id] : this.get(id);
@@ -65,17 +64,14 @@ export class ClassInterface {
     return (this as any)[method](...args);
   }
 
-  /** Get a member of the class by its id. */
   static get(id: string | number) {
     return this.members[id];
   }
 
-  /** Get all members of the class. */
   static getAll() {
     return this.members;
   }
 
-  /** Adds a new member of the class to its registries. */
   static add(id: string | number, member: any) {
     if (this.members[id]) return false;
 
@@ -92,7 +88,6 @@ export class ClassInterface {
     return true;
   }
 
-  /** Removes a member of the class from its registries. */
   static remove(id: string | number) {
     const member = this.members[id];
 

@@ -10,7 +10,7 @@ class PlayerInterface {
 
   constructor() {
     try {
-      const { userId, charId, stateId } = exports.ox_core.GetPlayer();
+      const { userId, charId, stateId } = exports.fox_core.GetPlayer();
       this.userId = userId;
       this.charId = charId;
       this.stateId = stateId;
@@ -23,9 +23,9 @@ class PlayerInterface {
     };
 
     const getMethods = async () => {
-      Object.keys(exports.ox_core.GetPlayerCalls()).forEach((method: string) => {
+      Object.keys(exports.fox_core.GetPlayerCalls()).forEach((method: string) => {
         if (!this.constructor.prototype[method])
-          this.constructor.prototype[method] = (...args: any[]) => exports.ox_core.CallPlayer(method, ...args);
+          this.constructor.prototype[method] = (...args: any[]) => exports.fox_core.CallPlayer(method, ...args);
       });
     };
 
@@ -40,7 +40,7 @@ class PlayerInterface {
     this.get(key);
 
     on(`ox:player:${key}`, (data: unknown) => {
-      if (GetInvokingResource() == 'ox_core' && (source as any) === '') callback(data);
+      if (GetInvokingResource() == 'fox_core' && (source as any) === '') callback(data);
     });
   }
 
@@ -51,7 +51,7 @@ class PlayerInterface {
     if (!this.charId) return;
 
     if (!(key in this)) {
-      this[key] = exports.ox_core.CallPlayer('get', key) ?? null;
+      this[key] = exports.fox_core.CallPlayer('get', key) ?? null;
       this.on(key, (data: unknown) => (this[key] = data));
     }
 

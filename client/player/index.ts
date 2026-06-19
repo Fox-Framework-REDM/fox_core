@@ -201,3 +201,5 @@ class PlayerSingleton {
 export const OxPlayer = new PlayerSingleton();
 
 import './status';
+import './dirt';
+import './health';

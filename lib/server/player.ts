@@ -36,9 +36,9 @@ class PlayerInterface {
   }
 }
 
-Object.keys(exports.ox_core.GetPlayerCalls()).forEach((method: string) => {
+Object.keys(exports.fox_core.GetPlayerCalls()).forEach((method: string) => {
   (PlayerInterface.prototype as any)[method] = function (...args: any[]) {
-    return exports.ox_core.CallPlayer(this.source, method, ...args);
+    return exports.fox_core.CallPlayer(this.source, method, ...args);
   };
 });
 
@@ -63,19 +63,19 @@ function CreatePlayerInstance(player?: _OxPlayer) {
 }
 
 export function GetPlayer(playerId: string | number) {
-  return CreatePlayerInstance(exports.ox_core.GetPlayer(playerId));
+  return CreatePlayerInstance(exports.fox_core.GetPlayer(playerId));
 }
 
 export function GetPlayerFromUserId(userId: number) {
-  return CreatePlayerInstance(exports.ox_core.GetPlayerFromUserId(userId));
+  return CreatePlayerInstance(exports.fox_core.GetPlayerFromUserId(userId));
 }
 
 export function GetPlayerFromCharId(charId: number) {
-  return CreatePlayerInstance(exports.ox_core.GetPlayerFromCharId(charId));
+  return CreatePlayerInstance(exports.fox_core.GetPlayerFromCharId(charId));
 }
 
 export function GetPlayers(filter?: Dict<any>): OxPlayer[] {
-  const players = exports.ox_core.GetPlayers(filter);
+  const players = exports.fox_core.GetPlayers(filter);
 
   for (const id in players) players[id] = CreatePlayerInstance(players[id]);
 
@@ -83,5 +83,5 @@ export function GetPlayers(filter?: Dict<any>): OxPlayer[] {
 }
 
 export function GetPlayerFromFilter(filter: Dict<any>) {
-  return CreatePlayerInstance(exports.ox_core.GetPlayerFromFilter(filter));
+  return CreatePlayerInstance(exports.fox_core.GetPlayerFromFilter(filter));
 }

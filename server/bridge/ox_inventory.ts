@@ -1,6 +1,6 @@
 import { OnPlayerLoaded } from '../player/events';
 
-SetConvarReplicated('inventory:framework', 'ox');
+SetConvarReplicated('inventory:framework', 'fox');
 SetConvarReplicated('inventory:trimplate ', 'false');
 
 OnPlayerLoaded('ox_inventory', (player) => {

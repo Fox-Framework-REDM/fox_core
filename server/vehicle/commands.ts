@@ -1,21 +1,39 @@
-import { addCommand } from '@overextended/ox_lib/server';
+import { addCommand, triggerClientCallback } from '@overextended/ox_lib/server';
 import { OxVehicle } from './class';
 import { sleep } from '@overextended/ox_lib';
 import { CreateVehicle } from 'vehicle';
 import { OxPlayer } from 'player/class';
+import { GetVehicleData } from '../../common/vehicles';
 
-export function DeleteCurrentVehicle(ped: number) {
-  const entity = GetVehiclePedIsIn(ped, false);
+async function dismountIfNeeded(ped: number, mount: number) {
+  if (!mount || mount === 0) return;
+  if (!IsPedOnMount(ped) || GetMount(ped) !== mount) return;
 
-  if (!entity) return;
+  ClearPedTasksImmediately(ped);
+
+  for (let i = 0; i < 20; i++) {
+    await sleep(50);
+    if (!IsPedOnMount(ped) || GetMount(ped) !== mount) break;
+  }
+}
+
+export async function DeleteCurrentVehicle(ped: number) {
+  // On RDR3 a ridden horse is a mount (ped), not a vehicle, so check both.
+  const entity = GetVehiclePedIsIn(ped, false) || GetMount(ped);
+
+  if (!entity) return false;
+
+  await dismountIfNeeded(ped, GetMount(ped));
 
   const vehicle = OxVehicle.getFromEntity(entity);
 
-  if (!vehicle) return DeleteEntity(entity);
+  if (!vehicle) {
+    if (DoesEntityExist(entity)) DeleteEntity(entity);
+    return true;
+  }
 
   vehicle.setStored('impound', true);
   vehicle.remove();
-
   return true;
 }
 
@@ -36,14 +54,16 @@ addCommand<{ model: string; owner?: number }>(
 
     if (!vehicle.entity) return vehicle.remove();
 
-    DeleteCurrentVehicle(ped);
+    await DeleteCurrentVehicle(ped);
     await sleep(200);
-    SetPedIntoVehicle(ped, vehicle.entity, -1);
+
+    // Horses are mounts (peds) and can't be seated server-side; they spawn beside the player.
+    if (GetVehicleData(args.model)?.type !== 'horse') SetPedIntoVehicle(ped, vehicle.entity, -1);
   },
   {
-    help: 'Spawn a vehicle with the given model.',
+    help: 'Spawn a horse, wagon, cart, coach or boat with the given model.',
     params: [
-      { name: 'model', type: 'string', help: 'The vehicle archetype.' },
+      { name: 'model', type: 'string', help: 'The vehicle/horse archetype.' },
       {
         name: 'owner',
         type: 'playerId',
@@ -55,32 +75,23 @@ addCommand<{ model: string; owner?: number }>(
   },
 );
 
-addCommand<{ radius?: number; owned?: string }>(
+addCommand(
   'dv',
-  async (playerId, args, raw) => {
+  async (playerId) => {
     const ped = GetPlayerPed(playerId as any);
 
-    if (!args.radius && DeleteCurrentVehicle(ped)) return;
+    const deleted = await DeleteCurrentVehicle(ped);
+    if (deleted) return;
 
-    const [x,y,z] = GetEntityCoords(ped)
-    const vehicles: number[] = GetEntitiesInRadius(x, y, z, args.radius || 2, 2, false, [])
+    // Fallback: resolve mount from the owning client and delete by netId.
+    const mountNetId = await triggerClientCallback<number>('ox:getCurrentMountNetId', playerId);
+    if (!mountNetId || mountNetId <= 0) return;
 
-    vehicles.forEach((handle) => {
-      const vehicle = OxVehicle.getFromEntity(handle)
-
-      if (!vehicle || !vehicle.owner) DeleteEntity(handle);
-      else if (args.owned) {
-        vehicle.setStored('impound', true);
-        vehicle.remove();
-      }
-    });
+    const mountEntity = NetworkGetEntityFromNetworkId(mountNetId);
+    if (mountEntity && mountEntity !== 0 && DoesEntityExist(mountEntity)) DeleteEntity(mountEntity);
   },
   {
-    help: 'Deletes your current vehicle, or any vehicles within range.',
-    params: [
-      { name: 'radius', type: 'number', help: 'The radius to despawn vehicles (defaults to 2).', optional: true },
-      { name: 'owned', help: 'Include player-owned vehicles.', optional: true },
-    ],
+    help: 'Deletes the vehicle or horse you are currently using.',
     restricted: 'group.admin',
   },
 );

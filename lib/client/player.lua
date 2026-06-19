@@ -21,7 +21,7 @@ end
 
 function OxPlayer:constructor()
     pcall(function()
-        local data = exports.ox_core.GetPlayer()
+        local data = exports.fox_core.GetPlayer()
 
         self.userId = data.userId
         self.charId = data.charId
@@ -32,7 +32,7 @@ function OxPlayer:constructor()
 end
 
 function OxPlayer:__call(...)
-    return exports.ox_core:CallPlayer(...)
+    return exports.fox_core:CallPlayer(...)
 end
 
 function OxPlayer:__tostring()
@@ -46,7 +46,7 @@ function OxPlayer:on(key, callback)
     self.get(key)
 
     AddEventHandler(('ox:player:%s'):format(key), function(data)
-        if GetInvokingResource() == 'ox_core' and source == '' then
+        if GetInvokingResource() == 'fox_core' and source == '' then
             callback(data)
         end
     end)
@@ -97,7 +97,7 @@ function Ox.GetPlayer()
 end
 
 local function getMethods()
-    for method in pairs(exports.ox_core:GetPlayerCalls()) do
+    for method in pairs(exports.fox_core:GetPlayerCalls()) do
         if not rawget(OxPlayer, method) then OxPlayer[method] = OxPlayer.__call end
     end
 end
