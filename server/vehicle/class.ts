@@ -30,8 +30,11 @@ function getHorseSpawnPlayer(owner?: number) {
     if (player?.source) return Number(player.source);
   }
 
-  const players = (globalThis as { GetPlayers?: () => string[] }).GetPlayers?.() || [];
-  return players[0] ? Number(players[0]) : 0;
+  // GetPlayers is a Lua-runtime helper and does not exist in the fxserver node runtime;
+  // enumerate the OxPlayer registry (maintained by join/exit events) instead.
+  const players = OxPlayer.getAll(undefined, true);
+  const first = players.find((p) => p.source);
+  return first ? Number(first.source) : 0;
 }
 
 export class OxVehicle extends ClassInterface {
